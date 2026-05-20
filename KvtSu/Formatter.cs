@@ -237,7 +237,7 @@ public class Formatter
 
     private string GetProductIdFromSku(Product p)
     {
-        return $"(SELECT product_id FROM oc_product WHERE sku = '{p.Sku}' AND manufacturer_id = (SELECT manufacturer_id FROM oc_manufacturer WHERE name = '{p.Manufacturer}'))";
+        return $"(SELECT product_id FROM oc_product WHERE sku = '{p.Sku}' AND manufacturer_id IN (SELECT manufacturer_id FROM oc_manufacturer WHERE name IN ('Levenhuk', 'Ermenrich')))";
     }
 
     internal string GetDimensionsSql()

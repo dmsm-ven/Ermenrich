@@ -1,25 +1,23 @@
 ﻿using ErmenrichParserApp;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace KvtSu;
+
 public partial class Manager
 {
     private readonly Parser parser;
     private readonly ResourceDownloader resourceDownloader;
-    private readonly JsonSerializerSettings settings;
     private readonly string storageFile;
     private List<Product> products;
 
     public Manager(string storageFile)
     {
-        settings = new JsonSerializerSettings() { Formatting = Formatting.Indented, PreserveReferencesHandling = PreserveReferencesHandling.Objects };
-
         parser = new Parser();
         resourceDownloader = new ResourceDownloader();
         this.storageFile = storageFile;
@@ -69,11 +67,11 @@ public partial class Manager
         return formatter.GetGeneralExport();
     }
 
-    private void Save(List<Product> productsToSave)
+    private async Task Save(List<Product> productsToSave)
     {
         if (productsToSave != null)
         {
-            var str = JsonConvert.SerializeObject(productsToSave, settings);
+            var str = JsonSerializer.Serialize(productsToSave);
             File.WriteAllText(storageFile, str);
         }
     }
@@ -83,7 +81,7 @@ public partial class Manager
         if (File.Exists(storageFile))
         {
             var str = File.ReadAllText(storageFile);
-            products = JsonConvert.DeserializeObject<List<Product>>(str, settings);
+            products = JsonSerializer.Deserialize<List<Product>>(str);
         }
     }
 
