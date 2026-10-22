@@ -25,7 +25,7 @@ public class Product
     public decimal Weight { get; set; }
 
     [JsonIgnore]
-    public string ManufacturerFtpPath => Manufacturer.ToLower();
+    public string ManufacturerFtpPath => Manufacturer.Replace(" ", "-").ToLower();
 }
 
 public class Characteristic
