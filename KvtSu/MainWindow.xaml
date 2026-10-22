@@ -31,7 +31,8 @@
                     <CheckBox
                         x:Name="chbxParseOnlyListSku"
                         VerticalAlignment="Center"
-                        Content="Парсить только артикулы из файла sku__white__list.txt" />
+                        Content="Парсить только артикулы из файла sku__white__list.txt"
+                        IsChecked="True" />
                 </StackPanel>
             </GroupBox>
 
@@ -55,8 +56,7 @@
                             x:Name="txtProductId"
                             Width="50"
                             Margin="2,2,8,2"
-                            VerticalContentAlignment="Center"
-                            Text="430088" />
+                            VerticalContentAlignment="Center" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <Button

@@ -143,11 +143,39 @@ public class Formatter
 
         sb.AppendLine(product.DescriptionMarkup);
 
-        if (product.SpecificationTableMarkup != null)
+        if (product.Characteristics != null && product.Characteristics.Any())
         {
             sb.AppendLine("<h2>Технические характеристики</h2>");
             sb.AppendLine("<div class=\"table-responsive\">");
-            sb.AppendLine(product.SpecificationTableMarkup.Replace("<table ", "<table class=\"table\""));
+            sb.AppendLine("<table class=\"table\">");
+            sb.AppendLine("<tbody>");
+            string? currentGroup = null;
+            foreach (var ch in product.Characteristics)
+            {
+                if (string.IsNullOrWhiteSpace(ch.Name) || string.IsNullOrWhiteSpace(ch.Value))
+                {
+                    continue;
+                }
+
+                if (currentGroup != ch.Group)
+                {
+                    currentGroup = ch.Group;
+                    if (!string.IsNullOrWhiteSpace(currentGroup))
+                    {
+                        sb.AppendLine($"<tr><td colspan=\"2\"><strong>{currentGroup}</strong></td></tr>");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine("<tr>");
+                    sb.AppendLine($"<td>{ch.Name}</td>");
+                    sb.AppendLine($"<td>{ch.Value}</td>");
+                    sb.AppendLine("</tr>");
+                }
+
+            }
+            sb.AppendLine("</tbody>");
+            sb.AppendLine("</table>");
             sb.Append("</div>");
         }
 
@@ -237,7 +265,7 @@ public class Formatter
 
     private string GetProductIdFromSku(Product p)
     {
-        return $"(SELECT product_id FROM oc_product WHERE sku = '{p.Sku}' AND manufacturer_id IN (SELECT manufacturer_id FROM oc_manufacturer WHERE name IN ('Levenhuk', 'Ermenrich')))";
+        return $"(SELECT product_id FROM oc_product WHERE sku = '{p.Sku}' AND product_id >= {startId})";
     }
 
     internal string GetDimensionsSql()
@@ -246,14 +274,12 @@ public class Formatter
 
         foreach (var product in products)
         {
-            string product_id = GetProductIdFromSku(product);
-
             string length = product.Dimensions != null ? product.Dimensions[0].ToString().Replace(",", ".") : "0";
             string width = product.Dimensions != null ? product.Dimensions[1].ToString().Replace(",", ".") : "0";
             string height = product.Dimensions != null ? product.Dimensions[2].ToString().Replace(",", ".") : "0";
             string weight = product.Weight.ToString().Replace(",", ".");
 
-            sb.AppendLine($"UPDATE oc_product SET length = '{length}', width = '{width}', height = '{height}', weight = '{weight}' WHERE product_id = {product_id};");
+            sb.AppendLine($"UPDATE oc_product SET length = '{length}', width = '{width}', height = '{height}', weight = '{weight}' WHERE (sku = '{product.Sku}' AND product_id >= {this.startId});");
         }
 
         return sb.ToString();

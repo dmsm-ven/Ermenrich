@@ -2,6 +2,7 @@
 using System.Text.Json.Serialization;
 
 namespace ErmenrichParserApp;
+
 public class Product
 {
     public string Uri { get; set; }
@@ -15,7 +16,7 @@ public class Product
     public string Manufacturer { get; set; }
 
     public string? DescriptionMarkup { get; set; }
-    public string? SpecificationTableMarkup { get; set; }
+    public List<Characteristic> Characteristics { get; set; } = new();
 
     public decimal[] Dimensions { get; set; }
 
@@ -25,6 +26,13 @@ public class Product
 
     [JsonIgnore]
     public string ManufacturerFtpPath => Manufacturer.ToLower();
+}
+
+public class Characteristic
+{
+    public string Group { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
 }
 
 public class PdfInstruction

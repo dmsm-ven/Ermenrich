@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -13,10 +14,12 @@ namespace ErmenrichParserApp;
 public class Parser
 {
     private readonly HttpClient client;
-    private readonly string HOST = "https://www.levenhuk.ru";
+    private readonly string HOST = "https://www.levenhuk-opt.ru";
 
     private static HttpClient GlobalClient = null;
     public static HttpClient Client => GlobalClient;
+
+    private static readonly Dictionary<string, string> brandsMap;
 
     public Parser()
     {
@@ -35,31 +38,36 @@ public class Parser
         GlobalClient = client;
     }
 
-    public async Task<List<Product>> ParseBrandMissingModels(IProgress<double> progress, IEnumerable<string> missingSku, string subBrandName)
+    static Parser()
+    {
+        brandsMap = new Dictionary<string, string>()
+        {
+            ["Bounty Hunter (Баунти Хантер)"] = "Bounty Hunter",
+            ["Bresser (Брессер)"] = "Bresser",
+            ["Ermenrich"] = "Ermenrich",
+            ["Ermenrich (Эрменрих)"] = "Explore Scientific",
+            ["Konus (Конус)"] = "Konus",
+            ["Levenhuk (Левенгук)"] = "Levenhuk",
+            ["Sky-Watcher (Скай-Вотчер)"] = "Sky-Watcher"
+        };
+    }
+
+    public async Task<List<Product>> ParseBrandMissingModels(IProgress<double> progress, IEnumerable<string> missingSku)
     {
         await client.GetAsync(HOST);
         var parsedProducts = new List<Product>();
 
         int current = 0;
         int total = missingSku.Count();
-        var dic = await GetSkuToDetailsPageForBrand(missingSku, subBrandName.ToLower());
 
         foreach (var sku in missingSku)
         {
             var product = new Product()
             {
-                Manufacturer = subBrandName,
                 Sku = sku
             };
 
-            if (dic.TryGetValue(sku, out var uri))
-            {
-                product.Uri = uri;
-            }
-            else
-            {
-                product.Uri = await SearchProductUri(sku);
-            }
+            product.Uri = await SearchProductUri(sku);
 
 
             if (!string.IsNullOrWhiteSpace(product.Uri))
@@ -76,50 +84,35 @@ public class Parser
 
     private async Task<string?> SearchProductUri(string sku)
     {
-        string searchUri = $"https://www.levenhuk.ru/search/?q={sku}";
+        string searchUri = $"{HOST}/search/?q={sku}";
         var doc = await GetDocument(searchUri);
         if (doc.DocumentNode.InnerHtml.Contains("К сожалению, ничего не найдено."))
         {
             return null;
         }
 
-        var match = Regex.Match(doc.DocumentNode.InnerHtml, "\"article\":\"(\\d+)\",.*\"url\":\"(.*?)\"");
+        var match = Regex.Match(doc.DocumentNode.InnerHtml, $"\"article\":\"({sku})\",.*\"url\":\"(.*?)\"");
         if (match.Success)
         {
-            string href = HOST + match.Groups[2].Value.Replace("\\", string.Empty).Trim();
-            return href;
+            string source = match.Value;
+
+            var regex = new Regex(
+                "\"article\"\\s*:\\s*\"?(\\d+)\"?(?:(?!\"article\"\\s*:)[\\s\\S])*?\"url\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"",
+                RegexOptions.Compiled
+            );
+
+            Dictionary<string, string> urls = regex.Matches(source)
+                .Cast<Match>()
+                .ToDictionary(
+                    m => m.Groups[1].Value,
+                    m => JsonSerializer.Deserialize<string>(
+                        "\"" + HOST + m.Groups[2].Value + "\""
+                    )!
+                );
+            var result = urls[sku];
+            return result;
         }
         return null;
-    }
-
-    private async Task<Dictionary<string, string>> GetSkuToDetailsPageForBrand(
-        IEnumerable<string> missingSkus, string subBrandName)
-    {
-        var doc = await GetDocument($"{HOST}/{subBrandName}");
-        if (doc == null)
-        {
-            return new();
-        }
-        Dictionary<string, string> dic = new();
-        try
-        {
-            foreach (var sku in missingSkus)
-            {
-                //string searchXPatch = $"//script[contains(text(), '\"id\": \"{sku}\"')]/../div[@class='catalog-item']/div[@class='opis-item']/a";
-                string searchXPatch = $"//div[@class='catalog-item']//img[contains(@src, '/images/products/medium/0/{sku}_')]/..";
-                var href = doc.DocumentNode.SelectSingleNode(searchXPatch)?.GetAttributeValue("href", null);
-                if (!string.IsNullOrWhiteSpace(href))
-                {
-                    dic[sku] = HOST + href;
-                }
-            }
-        }
-        catch
-        {
-            //ignore
-        }
-
-        return dic;
     }
 
     private async Task ParseProductDetails(Product product)
@@ -130,45 +123,74 @@ public class Parser
             return;
         }
 
+        var productSku = doc.DocumentNode
+            .SelectSingleNode("//table[@class='product-detail__short-specifications']//td[contains(text(), 'Артикул')]/following-sibling::td")
+            ?.InnerText;
+        if (string.IsNullOrWhiteSpace(productSku) || productSku != product.Sku)
+        {
+            throw new ArgumentException($"Product SKU mismatch. Expected: {product.Sku}, Found: {productSku}");
+        }
+
+        try
+        {
+            product.Manufacturer = MapManufacturerName(doc.DocumentNode.SelectSingleNode("//table[@class='product-detail__short-specifications']//a[contains(@href, '/brands/')]")
+                .InnerText);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return;
+        }
+
         product.Name = doc.DocumentNode.SelectSingleNode("//h1")?.InnerText.TrimHtml();
         product.DescriptionMarkup = doc.DocumentNode.SelectSingleNode("//div[@itemprop='description']")?.InnerHtml.TrimHtml();
-        product.SpecificationTableMarkup = doc.DocumentNode.SelectSingleNode("//table[@id='specification']")?.OuterHtml.TrimHtml();
+        var charTableNode = doc.DocumentNode.SelectSingleNode("//div[@id='product-specification']/table[@class='specification-table']");
+        if (charTableNode != null)
+        {
+            product.Characteristics = ParseCharacteristics(charTableNode);
+
+            var packSizeCharacteristic = product.Characteristics.FirstOrDefault(c => c.Name.Equals("Размер упаковки (ДxШxВ)", StringComparison.OrdinalIgnoreCase));
+
+            if (packSizeCharacteristic != null)
+            {
+                var match = Regex.Match(
+                    packSizeCharacteristic.Value,
+                    @"(\d+(?:[.,]\d+)?)\s*[xх×]\s*" +
+                    @"(\d+(?:[.,]\d+)?)\s*[xх×]\s*" +
+                    @"(\d+(?:[.,]\d+)?)"
+                );
+
+                if (match.Success)
+                {
+                    product.Dimensions = new decimal[3];
+                    product.Dimensions[0] = decimal.Parse(
+                        match.Groups[1].Value.Replace(',', '.'),
+                        System.Globalization.CultureInfo.InvariantCulture) * 10;
+
+                    product.Dimensions[1] = decimal.Parse(
+                        match.Groups[2].Value.Replace(',', '.'),
+                        System.Globalization.CultureInfo.InvariantCulture) * 10;
+
+                    product.Dimensions[2] = decimal.Parse(
+                        match.Groups[3].Value.Replace(',', '.'),
+                        System.Globalization.CultureInfo.InvariantCulture) * 10;
+                }
+            }
+
+
+            var weightCharacteristic = product.Characteristics.FirstOrDefault(c => c.Name.Equals("Вес в упаковке", StringComparison.OrdinalIgnoreCase));
+            if (weightCharacteristic != null)
+            {
+                product.Weight = decimal.Parse(
+                        weightCharacteristic.Value
+                        .Replace(" кг", string.Empty)
+                        .Replace(',', '.'),
+                        System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
 
         var reg = Regex.Match(product.Name, $"^(.*?) {product.Manufacturer} (.*)$");
         product.Model = reg.Groups[2].Value;
         product.ProductType = reg.Groups[1].Value;
-
-        string? weightString = doc.DocumentNode.SelectSingleNode("//li/span[contains(text(), 'Вес в упаковке: ')]")
-            ?.ParentNode
-            ?.InnerText
-            ?.Replace("&times;", "x");
-
-        if (weightString != null && weightString.Contains("кг."))
-        {
-            var weightRegex = Regex.Match(weightString, "Вес в упаковке: (.*?) кг.");
-            if (weightRegex.Success && decimal.TryParse(weightRegex.Groups[1].Value, out var weight))
-            {
-                product.Weight = weight;
-            }
-        }
-
-        string dimensionsString = doc.DocumentNode
-            .SelectSingleNode("//li/span[contains(text(), 'Размер упаковки (ДхШхВ): ')]")
-            ?.ParentNode
-            ?.InnerText
-            ?.Replace("&times;", "x");
-
-        if (dimensionsString != null && dimensionsString.Contains("см."))
-        {
-            var dimensionsRegexp = Regex.Match(dimensionsString, @"Размер упаковки \(ДхШхВ\): (.*?) см.");
-
-            var dimensions = dimensionsRegexp.Groups[1].Value.Split('x').Select(v => decimal.Parse(v) * 10).ToArray();
-
-            if (dimensions.Length == 3)
-            {
-                product.Dimensions = dimensions;
-            }
-        }
 
         var imagesXpatch = "//div[@class='product-detail__gallery']//div[@data-gallery-target]";
         if (doc.DocumentNode.SelectSingleNode(imagesXpatch) != null)
@@ -198,6 +220,84 @@ public class Parser
 
             product.Instructions.AddRange(instructions);
         }
+    }
+
+    public static List<Characteristic> ParseCharacteristics(HtmlNode tableNode)
+    {
+        var result = new List<Characteristic>();
+
+        if (tableNode == null)
+            return result;
+
+        string currentGroup = string.Empty;
+
+        var rows = tableNode.SelectNodes(
+            ".//tr[contains(concat(' ', normalize-space(@class), ' '), ' specification-table__item ')]"
+        );
+
+        if (rows == null)
+            return result;
+
+        foreach (var row in rows)
+        {
+            var titleNode = row.SelectSingleNode(
+                ".//td[contains(concat(' ', normalize-space(@class), ' '), ' specification-table__title ')]"
+            );
+
+            var valueNode = row.SelectSingleNode(
+                ".//td[contains(concat(' ', normalize-space(@class), ' '), ' specification-table__value ')]"
+            );
+
+            if (titleNode == null)
+                continue;
+
+            string name = NormalizeText(titleNode.InnerText);
+            string value = valueNode != null
+                ? NormalizeText(valueNode.InnerText)
+                : string.Empty;
+
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            // Заголовок группы: название есть, значение отсутствует.
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                currentGroup = name;
+                continue;
+            }
+
+            result.Add(new Characteristic
+            {
+                Group = currentGroup,
+                Name = name,
+                Value = value
+            });
+
+
+        }
+
+        return result;
+    }
+
+    private static string NormalizeText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+
+        text = WebUtility.HtmlDecode(text);
+        text = Regex.Replace(text, @"\s+", " ");
+
+        return text.Trim();
+    }
+
+    private static string MapManufacturerName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || !brandsMap.TryGetValue(name, out var mappedName))
+        {
+            throw new ArgumentOutOfRangeException("Unknown manufacturer name: " + name);
+        }
+
+        return mappedName;
     }
 
     private async Task<HtmlDocument> GetDocument(string uri)

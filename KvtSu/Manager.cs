@@ -32,20 +32,20 @@ public partial class Manager
             skuWhiteList = File.ReadAllLines("sku_white_list.txt").ToHashSet();
         }
 
-        var list = await parser.ParseBrandMissingModels(progress, skuWhiteList, subBrandName: "Ermenrich");
-        Save(list);
+        var list = await parser.ParseBrandMissingModels(progress, skuWhiteList);
+        await Save(list);
         products = list;
     }
 
-    public string GetDescriptionSql()
+    public string GetDescriptionSql(int startId)
     {
-        var formatter = new Formatter(products, -1);
+        var formatter = new Formatter(products, startId);
         return formatter.GetDescriptionSql();
     }
 
-    public string GetPdfSql()
+    public string GetPdfSql(int startId)
     {
-        var formatter = new Formatter(products, -1);
+        var formatter = new Formatter(products, startId);
         return formatter.GetPdfSql();
     }
 
@@ -120,9 +120,9 @@ public partial class Manager
         return sb.ToString().Trim('\r', '\n', '\t', ' ', ',') + ";";
     }
 
-    internal string GetDimensionsSql()
+    internal string GetDimensionsSql(int startId)
     {
-        var formatter = new Formatter(products, -1);
+        var formatter = new Formatter(products, startId);
         return formatter.GetDimensionsSql();
     }
 }

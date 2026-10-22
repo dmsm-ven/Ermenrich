@@ -69,13 +69,13 @@ public partial class MainWindow : Window
 
     private void btnSqlDescription_Click(object sender, RoutedEventArgs e)
     {
-        string data = manager.GetDescriptionSql();
+        string data = manager.GetDescriptionSql(PID);
         Clipboard.SetText(data);
     }
 
     private void btnSqlPdf_Click(object sender, RoutedEventArgs e)
     {
-        string data = manager.GetPdfSql();
+        string data = manager.GetPdfSql(PID);
         Clipboard.SetText(data);
     }
 
@@ -104,12 +104,12 @@ public partial class MainWindow : Window
 
     private void btnGetDimensionsSql_Click(object sender, RoutedEventArgs e)
     {
-        string data = manager.GetDimensionsSql();
+        string data = manager.GetDimensionsSql(PID);
         Clipboard.SetText(data);
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show("PID CHECK WARNING");
+
     }
 }

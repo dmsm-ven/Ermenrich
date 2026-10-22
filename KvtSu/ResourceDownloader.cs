@@ -23,6 +23,7 @@ public partial class Manager
                 try
                 {
                     await DownloadProductResources(folder, product);
+                    await Task.Delay(TimeSpan.FromSeconds(1.25));
                 }
                 catch
                 {
@@ -39,7 +40,7 @@ public partial class Manager
 
             foreach (var image in images)
             {
-                string localPath = Path.Combine(folder, "products", image.CreateMD5() + Path.GetExtension(image));
+                string localPath = Path.Combine(folder, product.ManufacturerFtpPath, "products", image.CreateMD5() + Path.GetExtension(image).ToLower());
 
                 if (!File.Exists(localPath))
                 {
@@ -69,7 +70,7 @@ public partial class Manager
 
             foreach (var pdf in instructions)
             {
-                string localPath = Path.Combine(folder, "pdf", pdf.Uri.CreateMD5() + Path.GetExtension(pdf.Uri));
+                string localPath = Path.Combine(folder, product.ManufacturerFtpPath, "pdf", pdf.Uri.CreateMD5() + Path.GetExtension(pdf.Uri).ToLower());
 
                 if (!File.Exists(localPath))
                 {
